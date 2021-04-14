@@ -170,13 +170,13 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
 
                 // Increase the heatmap color weight weight by zoom level
                 // heatmap-intensity is a multiplier on top of heatmap-weight
-                heatmapIntensity(
-                        interpolate(
-                                linear(), zoom(),
-                                stop(0, 1),
-                                stop(9, 3)
-                        )
-                ),
+//                heatmapIntensity(
+//                        interpolate(
+//                                linear(), zoom(),
+//                                stop(0, 1),
+//                                stop(15, 2)
+//                        )
+//                ),
 
                 // Adjust the heatmap radius by zoom level
                 heatmapRadius(
