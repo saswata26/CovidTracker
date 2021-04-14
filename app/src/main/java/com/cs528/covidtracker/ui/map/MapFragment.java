@@ -21,6 +21,8 @@ import com.cs528.covidtracker.R;
 import com.google.gson.JsonArray;
 import com.mapbox.android.core.permissions.PermissionsListener;
 import com.mapbox.android.core.permissions.PermissionsManager;
+import com.mapbox.android.gestures.MoveGestureDetector;
+import com.mapbox.android.gestures.StandardScaleGestureDetector;
 import com.mapbox.geojson.Feature;
 import com.mapbox.geojson.FeatureCollection;
 import com.mapbox.geojson.LineString;
@@ -56,8 +58,9 @@ import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapIntensity
 import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapRadius;
 import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapWeight;
 
-public class MapFragment extends Fragment implements PermissionsListener, LocationListener {
+public class MapFragment extends Fragment implements PermissionsListener, LocationListener, MapboxMap.OnMoveListener, MapboxMap.OnScaleListener {
 
+    private View currLoc;
     private PermissionsManager permissionsManager;
     private MapView mapView;
     private MapboxMap mapboxMap;
@@ -65,7 +68,8 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
     private LocationManager locationManager;
     private ArrayList<CountyData> countyData;
 
-    private boolean trackingCurrPos = false;
+    private boolean trackingCurrPos = true;
+    private Location lastLoc;
 
     private Source geoJsonSource;
     private static final String EARTHQUAKE_SOURCE_ID = "earthquakes";
@@ -88,11 +92,29 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
                 addCovidSource(loadedStyle);
         });
 
+        currLoc = root.findViewById(R.id.currLocation);
+        currLoc.setOnClickListener(view -> {
+            if (mapboxMap == null || lastLoc == null)
+                return;
+
+            CameraPosition position = new CameraPosition.Builder()
+                    .target(new LatLng(lastLoc.getLatitude(), lastLoc.getLongitude()))
+                    .zoom(9)
+                    .build();
+
+            mapboxMap.setCameraPosition(position);
+            currLoc.setVisibility(View.GONE);
+        });
+
         mapView = root.findViewById(R.id.mapView);
         mapView.onCreate(savedInstanceState);
+
         mapView.getMapAsync(mapboxMap -> mapboxMap.setStyle(Style.DARK, style -> {
             MapFragment.this.mapboxMap = mapboxMap;
             MapFragment.this.loadedStyle = style;
+
+            mapboxMap.addOnMoveListener(MapFragment.this);
+            mapboxMap.addOnScaleListener(MapFragment.this);
 
             addCovidSource(style);
             addHeatmapLayer(style);
@@ -119,7 +141,7 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
 
     private void addHeatmapLayer(@NonNull Style loadedMapStyle) {
         HeatmapLayer layer = new HeatmapLayer(HEATMAP_LAYER_ID, EARTHQUAKE_SOURCE_ID);
-        layer.setMaxZoom(30);
+        layer.setMaxZoom(15);
         layer.setSourceLayer(HEATMAP_LAYER_SOURCE);
         layer.setProperties(
             // Color ramp for heatmap.  Domain is 0 (low) to 1 (high).
@@ -128,21 +150,20 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
                 heatmapColor(
                         interpolate(
                                 linear(), heatmapDensity(),
-                                literal(0), rgba(33, 102, 172, 0.4),
-                                literal(0.2), rgb(103, 169, 207),
-                                literal(0.4), rgb(209, 229, 240),
-                                literal(0.6), rgb(253, 219, 199),
-                                literal(0.8), rgb(239, 138, 98),
-                                literal(1), rgb(178, 24, 43)
+                                literal(0), rgba(255, 255, 178, 0.2),
+                                literal(0.1), rgb(255, 255, 178),
+                                literal(0.3), rgb(254, 178, 76),
+                                literal(0.5), rgb(253, 141, 60),
+                                literal(0.7), rgb(252, 78, 42),
+                                literal(1), rgb(227,26,28)
                         )
                 ),
-
                 // Increase the heatmap weight based on frequency and property magnitude
                 heatmapWeight(
                         interpolate(
                                 linear(), get("mag"),
                                 stop(0, 0),
-                                stop(1, 0.1),
+                                stop(10, 0.1),
                                 stop(getHighestCases(), 1)
                         )
                 ),
@@ -161,8 +182,9 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
                 heatmapRadius(
                         interpolate(
                                 linear(), zoom(),
-                                stop(0, 2),
-                                stop(9, 150)
+                                stop(0, 1),
+                                stop(3, 10),
+                                stop(15, 250)
                         )
                 )
         );
@@ -242,10 +264,12 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
 
     @Override
     public void onLocationChanged(Location location) {
+        lastLoc = location;
+
         if (trackingCurrPos) {
             CameraPosition position = new CameraPosition.Builder()
                     .target(new LatLng(location.getLatitude(), location.getLongitude()))
-                    .zoom(10)
+                    .zoom(9)
                     .build();
 
             mapboxMap.setCameraPosition(position);
@@ -283,4 +307,28 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
 
     @Override
     public void onProviderDisabled(String s) { }
+
+    @Override
+    public void onMoveBegin(@NonNull MoveGestureDetector detector) {
+        trackingCurrPos = false;
+        currLoc.setVisibility(View.VISIBLE);
+    }
+
+    @Override
+    public void onMove(@NonNull MoveGestureDetector detector) { }
+
+    @Override
+    public void onMoveEnd(@NonNull MoveGestureDetector detector) { }
+
+    @Override
+    public void onScaleBegin(@NonNull StandardScaleGestureDetector detector) {
+        trackingCurrPos = false;
+        currLoc.setVisibility(View.VISIBLE);
+    }
+
+    @Override
+    public void onScale(@NonNull StandardScaleGestureDetector detector) { }
+
+    @Override
+    public void onScaleEnd(@NonNull StandardScaleGestureDetector detector) { }
 }
