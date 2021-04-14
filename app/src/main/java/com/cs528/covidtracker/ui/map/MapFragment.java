@@ -1,7 +1,6 @@
 package com.cs528.covidtracker.ui.map;
 
 import android.content.Context;
-import android.graphics.Color;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -9,29 +8,52 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.BounceInterpolator;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
 
+import com.cs528.covidtracker.App;
+import com.cs528.covidtracker.CountyData;
+import com.cs528.covidtracker.CovidUtils;
+import com.cs528.covidtracker.Params;
 import com.cs528.covidtracker.R;
+import com.google.gson.JsonArray;
 import com.mapbox.android.core.permissions.PermissionsListener;
 import com.mapbox.android.core.permissions.PermissionsManager;
-import com.mapbox.mapboxsdk.Mapbox;
+import com.mapbox.geojson.Feature;
+import com.mapbox.geojson.FeatureCollection;
+import com.mapbox.geojson.LineString;
+import com.mapbox.geojson.Point;
 import com.mapbox.mapboxsdk.camera.CameraPosition;
 import com.mapbox.mapboxsdk.geometry.LatLng;
 import com.mapbox.mapboxsdk.location.LocationComponent;
 import com.mapbox.mapboxsdk.location.LocationComponentActivationOptions;
-import com.mapbox.mapboxsdk.location.LocationComponentOptions;
-import com.mapbox.mapboxsdk.location.modes.CameraMode;
 import com.mapbox.mapboxsdk.location.modes.RenderMode;
 import com.mapbox.mapboxsdk.maps.MapView;
 import com.mapbox.mapboxsdk.maps.MapboxMap;
-import com.mapbox.mapboxsdk.maps.OnMapReadyCallback;
 import com.mapbox.mapboxsdk.maps.Style;
+import com.mapbox.mapboxsdk.style.expressions.Expression;
+import com.mapbox.mapboxsdk.style.layers.HeatmapLayer;
+import com.mapbox.mapboxsdk.style.sources.GeoJsonSource;
+import com.mapbox.mapboxsdk.style.sources.Source;
 
+import java.util.ArrayList;
 import java.util.List;
+
+import static com.mapbox.mapboxsdk.style.expressions.Expression.get;
+import static com.mapbox.mapboxsdk.style.expressions.Expression.heatmapDensity;
+import static com.mapbox.mapboxsdk.style.expressions.Expression.interpolate;
+import static com.mapbox.mapboxsdk.style.expressions.Expression.linear;
+import static com.mapbox.mapboxsdk.style.expressions.Expression.literal;
+import static com.mapbox.mapboxsdk.style.expressions.Expression.rgba;
+import static com.mapbox.mapboxsdk.style.expressions.Expression.rgb;
+import static com.mapbox.mapboxsdk.style.expressions.Expression.stop;
+import static com.mapbox.mapboxsdk.style.expressions.Expression.zoom;
+import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapColor;
+import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapIntensity;
+import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapRadius;
+import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapWeight;
 
 public class MapFragment extends Fragment implements PermissionsListener, LocationListener {
 
@@ -39,21 +61,116 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
     private MapView mapView;
     private MapboxMap mapboxMap;
     private LocationManager locationManager;
+    private ArrayList<CountyData> countyData;
 
     private boolean trackingCurrPos = true;
+
+    private Source geoJsonSource;
+    private static final String EARTHQUAKE_SOURCE_ID = "earthquakes";
+    private static final String HEATMAP_LAYER_ID = "earthquakes-heat";
+    private static final String HEATMAP_LAYER_SOURCE = "earthquakes";
 
     public View onCreateView(@NonNull LayoutInflater inflater,
                              ViewGroup container, Bundle savedInstanceState) {
         View root = inflater.inflate(R.layout.fragment_map, container, false);
 
-        mapView = (MapView) root.findViewById(R.id.mapView);
+        String covidData = App.getPrefs().getString(Params.CovidDataKey, "[]");
+        countyData = CovidUtils.parseCovidJson(covidData);
+
+        // Get updated data from api
+        CovidUtils.getCovidData(() -> {
+            String updated = App.getPrefs().getString(Params.CovidDataKey, "[]");
+            countyData = CovidUtils.parseCovidJson(updated);
+        });
+
+        mapView = root.findViewById(R.id.mapView);
         mapView.onCreate(savedInstanceState);
-        mapView.getMapAsync(mapboxMap -> mapboxMap.setStyle(Style.MAPBOX_STREETS, style -> {
+        mapView.getMapAsync(mapboxMap -> mapboxMap.setStyle(Style.DARK, style -> {
             MapFragment.this.mapboxMap = mapboxMap;
+
+            addCovidSource(style);
+            addHeatmapLayer(style);
+
             enableLocationComponent(style);
         }));
 
         return root;
+    }
+
+    private void addCovidSource(@NonNull Style loadedMapStyle) {
+        ArrayList<Point> coords = new ArrayList<>();
+
+        for (CountyData cd : countyData) {
+            coords.add(Point.fromLngLat(cd.lng, cd.lat));
+//            coords.add(Point.fromLngLat(-72.5300515, 42.3867598));
+//            break;
+        }
+
+        LineString lineString = LineString.fromLngLats(coords);
+        FeatureCollection featureCollection = FeatureCollection.fromFeatures(
+                new Feature[]{Feature.fromGeometry(lineString), Feature.fromJson(getMagnitudes())});
+
+//        featureCollection.features().get(0).addProperty("mag", getMagnitudes());
+        for (Feature feature : featureCollection.features()) {
+            System.out.println("ASSDFADSFSD " + feature.toJson());
+        }
+
+        try {
+            geoJsonSource = new GeoJsonSource(HEATMAP_LAYER_SOURCE, featureCollection);
+            loadedMapStyle.addSource(geoJsonSource);
+        } catch (Exception e) { }
+    }
+
+    private void addHeatmapLayer(@NonNull Style loadedMapStyle) {
+        HeatmapLayer layer = new HeatmapLayer(HEATMAP_LAYER_ID, EARTHQUAKE_SOURCE_ID);
+        layer.setMaxZoom(9);
+        layer.setSourceLayer(HEATMAP_LAYER_SOURCE);
+        layer.setProperties(
+            // Color ramp for heatmap.  Domain is 0 (low) to 1 (high).
+            // Begin color ramp at 0-stop with a 0-transparency color
+            // to create a blur-like effect.
+                heatmapColor(
+                        interpolate(
+                                linear(), heatmapDensity(),
+                                literal(0), rgba(33, 102, 172, 0.4),
+                                literal(0.2), rgb(103, 169, 207),
+                                literal(0.4), rgb(209, 229, 240),
+                                literal(0.6), rgb(253, 219, 199),
+                                literal(0.8), rgb(239, 138, 98),
+                                literal(1), rgb(178, 24, 43)
+                        )
+                ),
+
+                // Increase the heatmap weight based on frequency and property magnitude
+                heatmapWeight(
+                        interpolate(
+                                linear(), get("mag"),
+                                stop(0, 0),
+                                stop(getHighestCases(), 1)
+                        )
+                ),
+
+                // Increase the heatmap color weight weight by zoom level
+                // heatmap-intensity is a multiplier on top of heatmap-weight
+                heatmapIntensity(
+                        interpolate(
+                                linear(), zoom(),
+                                stop(0, 1),
+                                stop(9, 3)
+                        )
+                ),
+
+                // Adjust the heatmap radius by zoom level
+                heatmapRadius(
+                        interpolate(
+                                linear(), zoom(),
+                                stop(0, 2),
+                                stop(9, 150)
+                        )
+                )
+        );
+
+        loadedMapStyle.addLayerAbove(layer, "waterway-label");
     }
 
     @SuppressWarnings( {"MissingPermission"})
@@ -136,6 +253,29 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
 
             mapboxMap.setCameraPosition(position);
         }
+    }
+
+    private int getHighestCases() {
+        int highest = 0;
+
+        for (CountyData cd : countyData) {
+            if (cd.cases > highest)
+                highest = cd.cases;
+        }
+
+        return highest;
+    }
+
+    private String getMagnitudes() {
+        JsonArray arr = new JsonArray();
+
+        for (CountyData cd : countyData) {
+            arr.add(cd.cases);
+//            arr.add(10000);
+//            break;
+        }
+
+        return "{\"type\": \"Feature\", \"properties\": { \"mag\": " + arr.toString() + "}}";
     }
 
     @Override
