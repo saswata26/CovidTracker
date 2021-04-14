@@ -21,6 +21,9 @@ public class CountyData {
         JsonObject stats = json.get("stats").getAsJsonObject();
         cases = stats.get("confirmed").getAsInt();
         deaths = stats.get("deaths").getAsInt();
+    }
 
+    public String getFeatureString() {
+        return "{ \"type\": \"Feature\", \"properties\": { \"mag\":" + cases + "}, \"geometry\": { \"type\": \"Point\", \"coordinates\": [ " + lng + ", "  + lat + ", 0.0 ] } }";
     }
 }

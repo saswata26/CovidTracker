@@ -63,7 +63,7 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
     private LocationManager locationManager;
     private ArrayList<CountyData> countyData;
 
-    private boolean trackingCurrPos = true;
+    private boolean trackingCurrPos = false;
 
     private Source geoJsonSource;
     private static final String EARTHQUAKE_SOURCE_ID = "earthquakes";
@@ -98,22 +98,12 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
     }
 
     private void addCovidSource(@NonNull Style loadedMapStyle) {
-        ArrayList<Point> coords = new ArrayList<>();
-
+        ArrayList<Feature> features = new ArrayList<>();
         for (CountyData cd : countyData) {
-            coords.add(Point.fromLngLat(cd.lng, cd.lat));
-//            coords.add(Point.fromLngLat(-72.5300515, 42.3867598));
-//            break;
+            features.add(Feature.fromJson(cd.getFeatureString()));
         }
 
-        LineString lineString = LineString.fromLngLats(coords);
-        FeatureCollection featureCollection = FeatureCollection.fromFeatures(
-                new Feature[]{Feature.fromGeometry(lineString), Feature.fromJson(getMagnitudes())});
-
-//        featureCollection.features().get(0).addProperty("mag", getMagnitudes());
-        for (Feature feature : featureCollection.features()) {
-            System.out.println("ASSDFADSFSD " + feature.toJson());
-        }
+        FeatureCollection featureCollection = FeatureCollection.fromFeatures(features);
 
         try {
             geoJsonSource = new GeoJsonSource(HEATMAP_LAYER_SOURCE, featureCollection);
@@ -123,7 +113,7 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
 
     private void addHeatmapLayer(@NonNull Style loadedMapStyle) {
         HeatmapLayer layer = new HeatmapLayer(HEATMAP_LAYER_ID, EARTHQUAKE_SOURCE_ID);
-        layer.setMaxZoom(9);
+        layer.setMaxZoom(30);
         layer.setSourceLayer(HEATMAP_LAYER_SOURCE);
         layer.setProperties(
             // Color ramp for heatmap.  Domain is 0 (low) to 1 (high).
@@ -146,6 +136,7 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
                         interpolate(
                                 linear(), get("mag"),
                                 stop(0, 0),
+                                stop(1, 0.1),
                                 stop(getHighestCases(), 1)
                         )
                 ),
