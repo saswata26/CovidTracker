@@ -40,6 +40,7 @@ import com.mapbox.mapboxsdk.style.sources.Source;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static com.mapbox.mapboxsdk.style.expressions.Expression.get;
 import static com.mapbox.mapboxsdk.style.expressions.Expression.heatmapDensity;
@@ -60,6 +61,7 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
     private PermissionsManager permissionsManager;
     private MapView mapView;
     private MapboxMap mapboxMap;
+    private Style loadedStyle;
     private LocationManager locationManager;
     private ArrayList<CountyData> countyData;
 
@@ -81,12 +83,16 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
         CovidUtils.getCovidData(() -> {
             String updated = App.getPrefs().getString(Params.CovidDataKey, "[]");
             countyData = CovidUtils.parseCovidJson(updated);
+
+            if (loadedStyle != null)
+                addCovidSource(loadedStyle);
         });
 
         mapView = root.findViewById(R.id.mapView);
         mapView.onCreate(savedInstanceState);
         mapView.getMapAsync(mapboxMap -> mapboxMap.setStyle(Style.DARK, style -> {
             MapFragment.this.mapboxMap = mapboxMap;
+            MapFragment.this.loadedStyle = style;
 
             addCovidSource(style);
             addHeatmapLayer(style);
