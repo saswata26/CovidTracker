@@ -2,6 +2,7 @@ package com.cs528.covidtracker;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.widget.Toast;
 
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.Volley;
@@ -19,6 +20,9 @@ public class App extends android.app.Application {
 
         requestQueue = Volley.newRequestQueue(this);
         Mapbox.getInstance(this, getResources().getString(R.string.mapbox_access_token));
+        AlarmHandler alarmHandler= new AlarmHandler(this);
+        alarmHandler.cancelAlarmManager();
+        alarmHandler.setAlarmManager();
     }
 
     public static RequestQueue getRequestQueue() {
