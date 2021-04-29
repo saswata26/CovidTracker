@@ -118,7 +118,7 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
 
             CameraPosition position = new CameraPosition.Builder()
                     .target(new LatLng(lastLoc.getLatitude(), lastLoc.getLongitude()))
-                    .zoom(9)
+                    .zoom(14)
                     .build();
 
             mapboxMap.setCameraPosition(position);
