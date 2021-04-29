@@ -1,32 +1,26 @@
-package com.cs528.covidtracker.ui.map;
+package com.cs528.covidtracker;
 
 import android.content.Context;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
-import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.fragment.app.Fragment;
+import androidx.appcompat.app.AppCompatActivity;
 
-import com.cs528.covidtracker.App;
-import com.cs528.covidtracker.CountyData;
-import com.cs528.covidtracker.CovidUtils;
-import com.cs528.covidtracker.Params;
-import com.cs528.covidtracker.R;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.mapbox.android.core.permissions.PermissionsListener;
 import com.mapbox.android.core.permissions.PermissionsManager;
 import com.mapbox.android.gestures.MoveGestureDetector;
 import com.mapbox.android.gestures.StandardScaleGestureDetector;
 import com.mapbox.geojson.Feature;
 import com.mapbox.geojson.FeatureCollection;
-import com.mapbox.geojson.LineString;
-import com.mapbox.geojson.Point;
 import com.mapbox.mapboxsdk.camera.CameraPosition;
 import com.mapbox.mapboxsdk.geometry.LatLng;
 import com.mapbox.mapboxsdk.location.LocationComponent;
@@ -35,14 +29,17 @@ import com.mapbox.mapboxsdk.location.modes.RenderMode;
 import com.mapbox.mapboxsdk.maps.MapView;
 import com.mapbox.mapboxsdk.maps.MapboxMap;
 import com.mapbox.mapboxsdk.maps.Style;
-import com.mapbox.mapboxsdk.style.expressions.Expression;
+import com.mapbox.mapboxsdk.style.layers.CircleLayer;
 import com.mapbox.mapboxsdk.style.layers.HeatmapLayer;
 import com.mapbox.mapboxsdk.style.sources.GeoJsonSource;
 import com.mapbox.mapboxsdk.style.sources.Source;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import static com.mapbox.mapboxsdk.style.expressions.Expression.get;
 import static com.mapbox.mapboxsdk.style.expressions.Expression.heatmapDensity;
@@ -53,13 +50,21 @@ import static com.mapbox.mapboxsdk.style.expressions.Expression.rgba;
 import static com.mapbox.mapboxsdk.style.expressions.Expression.rgb;
 import static com.mapbox.mapboxsdk.style.expressions.Expression.stop;
 import static com.mapbox.mapboxsdk.style.expressions.Expression.zoom;
+import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.circleColor;
+import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.circleOpacity;
+import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.circleRadius;
+import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.circleStrokeColor;
+import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.circleStrokeWidth;
 import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapColor;
 import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapIntensity;
 import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapRadius;
 import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapWeight;
 
-public class MapFragment extends Fragment implements PermissionsListener, LocationListener, MapboxMap.OnMoveListener, MapboxMap.OnScaleListener {
+public class MapActivity extends AppCompatActivity implements PermissionsListener, LocationListener, MapboxMap.OnMoveListener, MapboxMap.OnScaleListener {
 
+    private TextView dateText, scoreText, interactionsText;
+    private HashMap<String, ArrayList<Interaction>> interactionsByDay;
+    private String currDateStr;
     private View currLoc;
     private PermissionsManager permissionsManager;
     private MapView mapView;
@@ -71,14 +76,17 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
     private boolean trackingCurrPos = true;
     private Location lastLoc;
 
-    private Source geoJsonSource;
+    private Source covidSource, interactionsSource;
     private static final String EARTHQUAKE_SOURCE_ID = "earthquakes";
     private static final String HEATMAP_LAYER_ID = "earthquakes-heat";
     private static final String HEATMAP_LAYER_SOURCE = "earthquakes";
+    private static final String INTERACTION_LAYER_SOURCE = "interactions";
+    private static final String INTERACTION_LAYER_ID = "interactions-layer";
 
-    public View onCreateView(@NonNull LayoutInflater inflater,
-                             ViewGroup container, Bundle savedInstanceState) {
-        View root = inflater.inflate(R.layout.fragment_map, container, false);
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_map);
 
         String covidData = App.getPrefs().getString(Params.CovidDataKey, "[]");
         countyData = CovidUtils.parseCovidJson(covidData);
@@ -87,12 +95,22 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
         CovidUtils.getCovidData(() -> {
             String updated = App.getPrefs().getString(Params.CovidDataKey, "[]");
             countyData = CovidUtils.parseCovidJson(updated);
+            setupScoreCard();
 
             if (loadedStyle != null)
                 addCovidSource(loadedStyle);
         });
 
-        currLoc = root.findViewById(R.id.currLocation);
+        dateText = findViewById(R.id.dateText);
+        scoreText = findViewById(R.id.scoreText);
+        interactionsText = findViewById(R.id.interactionsText);
+
+        // Initially set to today's date
+        currDateStr = new SimpleDateFormat("MM/dd/yyyy").format(new Date());
+        loadInteractions();
+        setupScoreCard();
+
+        currLoc = findViewById(R.id.currLocation);
         currLoc.setOnClickListener(view -> {
             if (mapboxMap == null || lastLoc == null)
                 return;
@@ -106,23 +124,176 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
             currLoc.setVisibility(View.GONE);
         });
 
-        mapView = root.findViewById(R.id.mapView);
+        mapView = findViewById(R.id.mapView);
         mapView.onCreate(savedInstanceState);
 
         mapView.getMapAsync(mapboxMap -> mapboxMap.setStyle(Style.DARK, style -> {
-            MapFragment.this.mapboxMap = mapboxMap;
-            MapFragment.this.loadedStyle = style;
+            MapActivity.this.mapboxMap = mapboxMap;
+            MapActivity.this.loadedStyle = style;
 
-            mapboxMap.addOnMoveListener(MapFragment.this);
-            mapboxMap.addOnScaleListener(MapFragment.this);
+            mapboxMap.getUiSettings().setAttributionEnabled(false);
+            mapboxMap.getUiSettings().setLogoEnabled(false);
+
+            mapboxMap.addOnMoveListener(MapActivity.this);
+            mapboxMap.addOnScaleListener(MapActivity.this);
 
             addCovidSource(style);
             addHeatmapLayer(style);
 
+            addInteractionSource(style);
+            addInteractionsLayer(style);
+
             enableLocationComponent(style);
         }));
+    }
 
-        return root;
+    private void setupScoreCard() {
+        Date currDate;
+
+        try {
+            currDate = new SimpleDateFormat("MM/dd/yyyy").parse(currDateStr);
+        } catch (Exception e) {
+            currDate = new Date();
+        }
+
+        String dayBefore = getDayBeforeString(currDate);
+        int score = 0, interactions = 0;
+        String scoreChange = "", interactionsChange = "";
+
+        if (interactionsByDay.containsKey(currDateStr)) {
+            score = (int) calculateScore(currDateStr);
+            interactions = interactionsByDay.get(currDateStr).size();
+        }
+
+        if (interactionsByDay.containsKey(dayBefore)) {
+            int lastScore = (int) calculateScore(dayBefore);
+            int lastInteractions = interactionsByDay.get(dayBefore).size();
+
+            if (lastScore < score)
+                scoreChange = "⇡";
+            else if (lastScore > score)
+                scoreChange = "⇣";
+
+            if (lastInteractions < interactions)
+                interactionsChange = "⇡";
+            else if (lastInteractions > interactions)
+                interactionsChange = "⇣";
+        }
+
+        dateText.setText(new SimpleDateFormat("EE, MMMM d").format(currDate));
+
+        scoreText.setText(score + scoreChange);
+        interactionsText.setText(interactions + interactionsChange);
+
+    }
+
+    private String getDayBeforeString(Date date) {
+        Calendar calendar = Calendar.getInstance();
+        calendar.setTime(date);
+        calendar.add(Calendar.DATE, -1);
+        Date yesterday = calendar.getTime();
+        return new SimpleDateFormat("MM/dd/yyyy").format(yesterday);
+    }
+
+    private double calculateScore(String dateString) {
+        double score = 0;
+
+        for (Interaction interaction : interactionsByDay.get(dateString)) {
+            score += interaction.getScore(countyData);
+        }
+
+        return score;
+    }
+
+    private void loadInteractions() {
+        String testInteractions = "[{ \"time\": 1619715597000, \"lat\": 42.326300, \"lng\": -71.370660, \"bt_id\": \"bt_id\", \"bt_strength\": 0.5}," +
+                "{ \"time\": 1619715598000, \"lat\": 42.326301, \"lng\": -71.371667, \"bt_id\": \"bt_id\", \"bt_strength\": 0.3}," +
+                "{ \"time\": 1619715599000, \"lat\": 42.326107, \"lng\": -71.370662, \"bt_id\": \"bt_id\", \"bt_strength\": 0.5}," +
+                "{ \"time\": 1619715597000, \"lat\": 42.326505, \"lng\": -71.373669, \"bt_id\": \"bt_id\", \"bt_strength\": 0.7}," +
+                "{ \"time\": 1619715597000, \"lat\": 42.336302, \"lng\": -71.370663, \"bt_id\": \"bt_id\", \"bt_strength\": 1}," +
+                "{ \"time\": 1619649912000, \"lat\": 42.336302, \"lng\": -71.370663, \"bt_id\": \"bt_id\", \"bt_strength\": 100000}]";
+        String interStr = App.getPrefs().getString(Params.BluetoothDataKey, testInteractions);
+
+        JsonArray interactionsArray = JsonParser.parseString(interStr).getAsJsonArray();
+        ArrayList<Interaction> interactions = new ArrayList<>();
+
+        for (JsonElement elem : interactionsArray) {
+            interactions.add(new Interaction(elem.getAsJsonObject()));
+        }
+
+        interactionsByDay = new HashMap<>();
+        for (Interaction interaction : interactions) {
+            String dayStr = interaction.dayStr();
+
+            if (!interactionsByDay.containsKey(dayStr))
+                interactionsByDay.put(dayStr, new ArrayList<>());
+            interactionsByDay.get(dayStr).add(interaction);
+        }
+    }
+
+    private void addInteractionSource(@NonNull Style loadedMapStyle) {
+        ArrayList<Interaction> interactions = interactionsByDay.get(currDateStr);
+
+        ArrayList<Feature> features = new ArrayList<>();
+        for (Interaction i : interactions) {
+            features.add(Feature.fromJson(i.getFeatureString()));
+        }
+
+        FeatureCollection featureCollection = FeatureCollection.fromFeatures(features);
+
+        try {
+            interactionsSource = new GeoJsonSource(INTERACTION_LAYER_SOURCE, featureCollection);
+            loadedMapStyle.addSource(interactionsSource);
+        } catch (Exception e) { }
+    }
+
+    private void addInteractionsLayer(@NonNull Style loadedMapStyle) {
+        CircleLayer circleLayer = new CircleLayer(INTERACTION_LAYER_ID, INTERACTION_LAYER_SOURCE);
+        circleLayer.setProperties(
+
+            // Size circle radius by earthquake magnitude and zoom level
+                circleRadius(
+                        interpolate(
+                                linear(), zoom(),
+                                literal(7), interpolate(
+                                        linear(), get("mag"),
+                                        stop(1, 1),
+                                        stop(6, 4)
+                                ),
+                                literal(16), interpolate(
+                                        linear(), get("mag"),
+                                        stop(1, 5),
+                                        stop(6, 50)
+                                )
+                        )
+                ),
+
+                // Color circle by earthquake magnitude
+                circleColor(
+                        interpolate(
+                                linear(), get("mag"),
+                                literal(1), rgba(33, 102, 172, 0),
+                                literal(2), rgb(103, 169, 207),
+                                literal(3), rgb(209, 229, 240),
+                                literal(4), rgb(253, 219, 199),
+                                literal(5), rgb(239, 138, 98),
+                                literal(6), rgb(178, 24, 43)
+                        )
+                ),
+
+            // Transition from heatmap to circle layer by zoom level
+                circleOpacity(
+                        interpolate(
+                                linear(), zoom(),
+                                stop(7, 0),
+                                stop(8, 1)
+                        )
+                ),
+                circleStrokeColor("white"),
+                circleStrokeWidth(1.0f)
+        );
+
+        loadedMapStyle.addLayerAbove(circleLayer, HEATMAP_LAYER_ID);
     }
 
     private void addCovidSource(@NonNull Style loadedMapStyle) {
@@ -134,8 +305,8 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
         FeatureCollection featureCollection = FeatureCollection.fromFeatures(features);
 
         try {
-            geoJsonSource = new GeoJsonSource(HEATMAP_LAYER_SOURCE, featureCollection);
-            loadedMapStyle.addSource(geoJsonSource);
+            covidSource = new GeoJsonSource(HEATMAP_LAYER_SOURCE, featureCollection);
+            loadedMapStyle.addSource(covidSource);
         } catch (Exception e) { }
     }
 
@@ -194,18 +365,24 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
 
     @SuppressWarnings( {"MissingPermission"})
     private void enableLocationComponent(@NonNull Style loadedMapStyle) {
-        if (PermissionsManager.areLocationPermissionsGranted(getActivity())) {
-            locationManager = (LocationManager) getActivity().getSystemService(Context.LOCATION_SERVICE);
+        if (PermissionsManager.areLocationPermissionsGranted(this)) {
+            locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
             locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, this);
 
             LocationComponent locationComponent = mapboxMap.getLocationComponent();
             locationComponent.activateLocationComponent(
-                    LocationComponentActivationOptions.builder(getActivity(), loadedMapStyle).build());
-            locationComponent.setLocationComponentEnabled(true);
+                    LocationComponentActivationOptions.builder(this, loadedMapStyle).build());
+
+            try {
+                locationComponent.setLocationComponentEnabled(true);
+            } catch (Exception e) {
+                System.out.println("Current location unavailable");
+            }
+
             locationComponent.setRenderMode(RenderMode.COMPASS);
         } else {
             permissionsManager = new PermissionsManager(this);
-            permissionsManager.requestLocationPermissions(getActivity());
+            permissionsManager.requestLocationPermissions(this);
         }
     }
 
@@ -216,7 +393,7 @@ public class MapFragment extends Fragment implements PermissionsListener, Locati
 
     @Override
     public void onExplanationNeeded(List<String> permissionsToExplain) {
-        Toast.makeText(getActivity(), "We need your location to show where you are on the map", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "We need your location to show where you are on the map", Toast.LENGTH_LONG).show();
     }
 
     @Override
