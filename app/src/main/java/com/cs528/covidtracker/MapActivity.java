@@ -60,7 +60,8 @@ import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapIntensity
 import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapRadius;
 import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapWeight;
 
-public class MapActivity extends AppCompatActivity implements PermissionsListener, LocationListener, MapboxMap.OnMoveListener, MapboxMap.OnScaleListener {
+public class MapActivity extends AppCompatActivity implements PermissionsListener,
+        LocationListener, MapboxMap.OnMoveListener, MapboxMap.OnScaleListener, MapboxMap.OnMapClickListener {
 
     private TextView dateText, scoreText, interactionsText;
     private HashMap<String, ArrayList<Interaction>> interactionsByDay;
@@ -136,6 +137,7 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
 
             mapboxMap.addOnMoveListener(MapActivity.this);
             mapboxMap.addOnScaleListener(MapActivity.this);
+            mapboxMap.addOnMapClickListener(MapActivity.this);
 
             addCovidSource(style);
             addHeatmapLayer(style);
@@ -206,8 +208,8 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
     }
 
     private void loadInteractions() {
-        String testInteractions = "[{ \"time\": 1619715597000, \"lat\": 42.326300, \"lng\": -71.370660, \"bt_id\": \"bt_id\", \"bt_strength\": 0.5}," +
-                "{ \"time\": 1619715598000, \"lat\": 42.326301, \"lng\": -71.371667, \"bt_id\": \"bt_id\", \"bt_strength\": 0.3}," +
+        String testInteractions = "[{ \"time\": 1619715597000, \"lat\": 42.323300, \"lng\": -71.371660, \"bt_id\": \"bt_id\", \"bt_strength\": 0.0}," +
+                "{ \"time\": 1619715598000, \"lat\": 42.326301, \"lng\": -71.372667, \"bt_id\": \"bt_id\", \"bt_strength\": 0.1}," +
                 "{ \"time\": 1619715599000, \"lat\": 42.326107, \"lng\": -71.370662, \"bt_id\": \"bt_id\", \"bt_strength\": 0.5}," +
                 "{ \"time\": 1619715597000, \"lat\": 42.326505, \"lng\": -71.373669, \"bt_id\": \"bt_id\", \"bt_strength\": 0.7}," +
                 "{ \"time\": 1619715597000, \"lat\": 42.336302, \"lng\": -71.370663, \"bt_id\": \"bt_id\", \"bt_strength\": 1}," +
@@ -254,17 +256,9 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
             // Size circle radius by earthquake magnitude and zoom level
                 circleRadius(
                         interpolate(
-                                linear(), zoom(),
-                                literal(7), interpolate(
-                                        linear(), get("mag"),
-                                        stop(1, 1),
-                                        stop(6, 4)
-                                ),
-                                literal(16), interpolate(
-                                        linear(), get("mag"),
-                                        stop(1, 5),
-                                        stop(6, 50)
-                                )
+                                linear(), get("mag"),
+                                stop(0, 8),
+                                stop(1, 8)
                         )
                 ),
 
@@ -272,12 +266,8 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
                 circleColor(
                         interpolate(
                                 linear(), get("mag"),
-                                literal(1), rgba(33, 102, 172, 0),
-                                literal(2), rgb(103, 169, 207),
-                                literal(3), rgb(209, 229, 240),
-                                literal(4), rgb(253, 219, 199),
-                                literal(5), rgb(239, 138, 98),
-                                literal(6), rgb(178, 24, 43)
+                                literal(0), rgba(173,255,47, 0),
+                                literal(1), rgb(178, 24, 43)
                         )
                 ),
 
@@ -446,7 +436,7 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
         if (trackingCurrPos) {
             CameraPosition position = new CameraPosition.Builder()
                     .target(new LatLng(location.getLatitude(), location.getLongitude()))
-                    .zoom(9)
+                    .zoom(14)
                     .build();
 
             mapboxMap.setCameraPosition(position);
@@ -508,4 +498,11 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
 
     @Override
     public void onScaleEnd(@NonNull StandardScaleGestureDetector detector) { }
+
+    @Override
+    public boolean onMapClick(@NonNull LatLng point) {
+        trackingCurrPos = false;
+        currLoc.setVisibility(View.VISIBLE);
+        return false;
+    }
 }
