@@ -1,11 +1,13 @@
 package com.cs528.covidtracker;
 
+import android.app.DatePickerDialog;
 import android.content.Context;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.view.View;
+import android.widget.DatePicker;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -83,6 +85,7 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
     private static final String HEATMAP_LAYER_SOURCE = "earthquakes";
     private static final String INTERACTION_LAYER_SOURCE = "interactions";
     private static final String INTERACTION_LAYER_ID = "interactions-layer";
+    private int interactionChange = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -105,6 +108,35 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
         dateText = findViewById(R.id.dateText);
         scoreText = findViewById(R.id.scoreText);
         interactionsText = findViewById(R.id.interactionsText);
+
+        dateText.setOnClickListener(view -> {
+            Calendar cal = Calendar.getInstance();
+            cal.setTime(getDate(currDateStr));
+            int year = cal.get(Calendar.YEAR);
+            int month = cal.get(Calendar.MONTH);
+            int day = cal.get(Calendar.DAY_OF_MONTH);
+
+            DatePickerDialog datePicker = new DatePickerDialog(MapActivity.this, (datePicker1, year1, month1, day1) -> {
+                Calendar cal1 = Calendar.getInstance();
+                cal1.set(Calendar.YEAR, year1);
+                cal1.set(Calendar.MONTH, month1);
+                cal1.set(Calendar.DAY_OF_MONTH, day1);
+
+                currDateStr = new SimpleDateFormat("MM/dd/yyyy").format(cal1.getTime());
+                setupScoreCard();
+
+                if (loadedStyle != null) {
+                    loadedStyle.removeLayer(INTERACTION_LAYER_ID + (interactionChange - 1));
+                    loadedStyle.removeLayer(INTERACTION_LAYER_SOURCE + (interactionChange - 1));
+
+                    addInteractionSource(loadedStyle, INTERACTION_LAYER_SOURCE + interactionChange);
+                    addInteractionsLayer(loadedStyle, INTERACTION_LAYER_SOURCE + interactionChange, INTERACTION_LAYER_ID + interactionChange);
+                    interactionChange += 1;
+                }
+            }, year, month, day);
+
+            datePicker.show();
+        });
 
         // Initially set to today's date
         currDateStr = new SimpleDateFormat("MM/dd/yyyy").format(new Date());
@@ -142,21 +174,16 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
             addCovidSource(style);
             addHeatmapLayer(style);
 
-            addInteractionSource(style);
-            addInteractionsLayer(style);
+            addInteractionSource(style, INTERACTION_LAYER_SOURCE + interactionChange);
+            addInteractionsLayer(style, INTERACTION_LAYER_SOURCE + interactionChange, INTERACTION_LAYER_ID + interactionChange);
+            interactionChange += 1;
 
             enableLocationComponent(style);
         }));
     }
 
     private void setupScoreCard() {
-        Date currDate;
-
-        try {
-            currDate = new SimpleDateFormat("MM/dd/yyyy").parse(currDateStr);
-        } catch (Exception e) {
-            currDate = new Date();
-        }
+        Date currDate = getDate(currDateStr);
 
         String dayBefore = getDayBeforeString(currDate);
         int score = 0, interactions = 0;
@@ -197,6 +224,14 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
         return new SimpleDateFormat("MM/dd/yyyy").format(yesterday);
     }
 
+    private Date getDate(String str) {
+        try {
+            return new SimpleDateFormat("MM/dd/yyyy").parse(currDateStr);
+        } catch (Exception e) {
+            return new Date();
+        }
+    }
+
     private double calculateScore(String dateString) {
         double score = 0;
 
@@ -233,8 +268,8 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
         }
     }
 
-    private void addInteractionSource(@NonNull Style loadedMapStyle) {
-        ArrayList<Interaction> interactions = interactionsByDay.get(currDateStr);
+    private void addInteractionSource(@NonNull Style loadedMapStyle, String SOURCE_ID) {
+        ArrayList<Interaction> interactions = interactionsByDay.containsKey(currDateStr) ? interactionsByDay.get(currDateStr) : new ArrayList<>();
 
         ArrayList<Feature> features = new ArrayList<>();
         for (Interaction i : interactions) {
@@ -244,13 +279,15 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
         FeatureCollection featureCollection = FeatureCollection.fromFeatures(features);
 
         try {
-            interactionsSource = new GeoJsonSource(INTERACTION_LAYER_SOURCE, featureCollection);
+            interactionsSource = new GeoJsonSource(SOURCE_ID, featureCollection);
             loadedMapStyle.addSource(interactionsSource);
-        } catch (Exception e) { }
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
     }
 
-    private void addInteractionsLayer(@NonNull Style loadedMapStyle) {
-        CircleLayer circleLayer = new CircleLayer(INTERACTION_LAYER_ID, INTERACTION_LAYER_SOURCE);
+    private void addInteractionsLayer(@NonNull Style loadedMapStyle, String SOURCE_ID, String LAYER_ID) {
+        CircleLayer circleLayer = new CircleLayer(LAYER_ID, SOURCE_ID);
         circleLayer.setProperties(
 
             // Size circle radius by earthquake magnitude and zoom level
@@ -311,7 +348,7 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
                 heatmapColor(
                         interpolate(
                                 linear(), heatmapDensity(),
-                                literal(0), rgba(255, 255, 178, 0.2),
+                                literal(0), rgba(255, 255, 178, 0.6),
                                 literal(0.1), rgb(255, 255, 178),
                                 literal(0.3), rgb(254, 178, 76),
                                 literal(0.5), rgb(253, 141, 60),
