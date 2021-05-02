@@ -29,9 +29,10 @@ public class App extends android.app.Application {
         requestQueue = Volley.newRequestQueue(this);
         Mapbox.getInstance(this, getResources().getString(R.string.mapbox_access_token));
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
-        AlarmHandler alarmHandler = new AlarmHandler(this);
-        alarmHandler.cancelAlarmManager();
-        alarmHandler.setAlarmManager();
+        AlarmHandler alarmHandler = new AlarmHandler(this);// for reapetedly calling bluetooth service
+        alarmHandler.cancelAlarmManager();//stop any previous service
+        alarmHandler.setAlarmManager();//start new service
+
     }
 
     public static RequestQueue getRequestQueue() {

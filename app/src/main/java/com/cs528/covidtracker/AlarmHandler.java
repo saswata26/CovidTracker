@@ -7,7 +7,7 @@ import android.content.Intent;
 
 import java.util.zip.CheckedOutputStream;
 
-public class AlarmHandler {
+public class AlarmHandler {//calls bluetoothservice repeatedly
     private Context context;
 
     public AlarmHandler(Context context){
@@ -17,8 +17,8 @@ public class AlarmHandler {
         Intent intent= new Intent(context, BluetoothService.class);
         PendingIntent sender = PendingIntent.getBroadcast(context,2,intent,0);
         AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        long interval=1000*60*1;//in milli seconds
-        am.setRepeating(AlarmManager.RTC_WAKEUP, 5000, interval, sender);
+        long interval=1000*60*15;//in milli seconds, CHANGE THIS VALUE FOR INTERVAL currently set to 15minutes
+        am.setRepeating(AlarmManager.RTC_WAKEUP, 5000, interval, sender);//INTERVAL MUST BE AT LEAST 1 MINUTE
 
     }
 
