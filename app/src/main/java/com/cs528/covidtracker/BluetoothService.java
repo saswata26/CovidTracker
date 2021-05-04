@@ -19,10 +19,15 @@ import androidx.core.app.ActivityCompat;
 
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashSet;
@@ -34,11 +39,9 @@ import static com.cs528.covidtracker.App.instance;
 public class BluetoothService extends BroadcastReceiver {
 
     private BluetoothAdapter mbtAdapter;//for bluetooth
-    private HashSet<String> addedDevices;//to prevent adding duplicate devices
     private Location loc;//store location
 
     public void onReceive(Context context, Intent intent) {
-        addedDevices = new HashSet<String>();
         mbtAdapter = BluetoothAdapter.getDefaultAdapter();
 
         //get location:
@@ -108,45 +111,52 @@ public class BluetoothService extends BroadcastReceiver {
             if (BluetoothDevice.ACTION_FOUND.equals(action)) {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 int rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE);
-                if (!addedDevices.contains(device.getAddress())) {//check if this is a duplicate
-                    addedDevices.add(device.getAddress());//add to catch future duplicates
-                    // Log.d("info", "success" + device.toString() + "huh\n" + device.getName() + "dev\n" + device.getType() + "class\n" + device.getBluetoothClass() + "alias\n" + device.getBondState() + "addr\n" + rssi+"/\n LOC:"+loc.toString());
 
-                    JSONObject sto = new JSONObject();
-                    try {
-                        sto.put("time", System.currentTimeMillis() + "");//consider Calendar.getInstance().getTime();
-                    } catch (JSONException e) {
-                        e.printStackTrace();
+                SharedPreferences prefs = App.getPrefs();
+                JsonArray interactionsArray = JsonParser.parseString(prefs.getString(Params.BluetoothDataKey, "[]")).getAsJsonArray();
+
+                // Check if we've seen this device within the last 3 intervals
+                if (timeSinceLastChecked(interactionsArray, device.getAddress()) < AlarmHandler.interval * 3) {
+                    for (int i = 0; i < interactionsArray.size(); i++) {
+                        String id = interactionsArray.get(i).getAsJsonObject().get("bt_id").getAsString();
+
+                        if (id.equals(device.getAddress()))
+                            interactionsArray.get(i).getAsJsonObject().addProperty("lastTimeChecked", System.currentTimeMillis() + "");
                     }
-                    try {
-                        sto.put("lat", loc.getLatitude() + "");//the + "" is used in all fields just incase value is null
-                    } catch (JSONException e) {
-                        e.printStackTrace();
-                    }
-                    try {
-                        sto.put("lng", loc.getLongitude() + "");
-                    } catch (JSONException e) {
-                        e.printStackTrace();
-                    }
-                    try {
-                        sto.put("bt_id", device.getAddress() + "");//bluetooth address
-                    } catch (JSONException e) {
-                        e.printStackTrace();
-                    }
-                    try {
-                        sto.put("bt_strength", ((double)(rssi + 128) / 255) + "");//convert from -128 to 127 into 0-1
-                    } catch (JSONException e) {
-                        e.printStackTrace();
-                    }
-                    Log.d("info", sto.toString());
-                    SharedPreferences prefs = App.getPrefs();
-                    prefs.edit().putString(Params.BluetoothDataKey, sto.toString());
-                } else {
-                    //Log.d("info","dupe");
+                    return;
                 }
+
+                // Log.d("info", "success" + device.toString() + "huh\n" + device.getName() + "dev\n" + device.getType() + "class\n" + device.getBluetoothClass() + "alias\n" + device.getBondState() + "addr\n" + rssi+"/\n LOC:"+loc.toString());
+
+                JsonObject sto = new JsonObject();
+                sto.addProperty("lastTimeChecked", System.currentTimeMillis() + "");//consider Calendar.getInstance().getTime();
+                sto.addProperty("time", System.currentTimeMillis() + "");//consider Calendar.getInstance().getTime();
+                sto.addProperty("lat", loc.getLatitude() + "");//the + "" is used in all fields just incase value is null
+                sto.addProperty("lng", loc.getLongitude() + "");
+                sto.addProperty("bt_id", device.getAddress() + "");//bluetooth address
+                sto.addProperty("bt_strength", ((double)(rssi + 128) / 255) + "");//convert from -128 to 127 into 0-1
+                Log.d("info", sto.toString());
+
+                interactionsArray.add(sto);
+
+                prefs.edit().putString(Params.BluetoothDataKey, interactionsArray.toString()).apply();
             }
         }
     };
 
+    private long timeSinceLastChecked(JsonArray interactions, String id) {
+        long lastTime = 0;
 
+        for (JsonElement interaction : interactions) {
+            JsonObject obj = interaction.getAsJsonObject();
+
+            if (obj.get("bt_id").getAsString().equals(id)) {
+                try {
+                    lastTime = Math.max(Long.parseLong(obj.get("lastTimeChecked").getAsString()), lastTime);
+                } catch (Exception e) {}
+            }
+        }
+
+        return System.currentTimeMillis() - lastTime;
+    }
 }

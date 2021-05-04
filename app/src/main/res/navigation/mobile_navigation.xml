@@ -13,8 +13,8 @@
 
     <fragment
         android:id="@+id/navigation_home"
-        android:name="com.cs528.covidtracker.ui.map.MapFragment"
+        android:name="com.cs528.covidtracker.MapActivity"
         android:label="@string/title_home"
-        tools:layout="@layout/fragment_map" />
+        tools:layout="@layout/activity_map" />
 
 </navigation>
