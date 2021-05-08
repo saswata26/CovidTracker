@@ -31,6 +31,8 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.Timer;
+import java.util.TimerTask;
 
 import static com.cs528.covidtracker.App.fusedLocationClient;
 import static com.cs528.covidtracker.App.instance;
@@ -40,6 +42,7 @@ public class BluetoothService extends BroadcastReceiver {
 
     private BluetoothAdapter mbtAdapter;//for bluetooth
     private Location loc;//store location
+    private JsonArray interactionsArray;
 
     public void onReceive(Context context, Intent intent) {
         mbtAdapter = BluetoothAdapter.getDefaultAdapter();
@@ -92,6 +95,7 @@ public class BluetoothService extends BroadcastReceiver {
                         public void run() {
                             mbtAdapter.cancelDiscovery();
                             instance.unregisterReceiver(mReceiver);
+                            App.getPrefs(context).edit().putLong(Params.LastBTScanKey, System.currentTimeMillis()).apply();
                         }
                     }, 30000);   //30 seconds
 
@@ -100,9 +104,6 @@ public class BluetoothService extends BroadcastReceiver {
                 }
             }
         }, 15000);   //15 seconds
-
-
-
     }
 
     private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
@@ -112,21 +113,19 @@ public class BluetoothService extends BroadcastReceiver {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 int rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE);
 
-                SharedPreferences prefs = App.getPrefs();
-                JsonArray interactionsArray = JsonParser.parseString(prefs.getString(Params.BluetoothDataKey, "[]")).getAsJsonArray();
+                SharedPreferences prefs = App.getPrefs(context);
 
-                // Check if we've seen this device within the last 3 intervals
-                if (timeSinceLastChecked(interactionsArray, device.getAddress()) < AlarmHandler.interval * 3) {
-                    for (int i = 0; i < interactionsArray.size(); i++) {
-                        String id = interactionsArray.get(i).getAsJsonObject().get("bt_id").getAsString();
+                if (interactionsArray == null)
+                    interactionsArray = JsonParser.parseString(prefs.getString(Params.BluetoothDataKey, "[]")).getAsJsonArray();
 
-                        if (id.equals(device.getAddress()))
-                            interactionsArray.get(i).getAsJsonObject().addProperty("lastTimeChecked", System.currentTimeMillis() + "");
-                    }
+                // Check if we've seen this device within the last scan
+                long lastScanTime = prefs.getLong(Params.LastBTScanKey, 0);
+                long lastTimeChecked = lastTimeChecked(interactionsArray, device.getAddress());
+
+                if (lastTimeChecked > (lastScanTime - AlarmHandler.interval * 2)) {
+                    updateLastTimeChecked(prefs, interactionsArray, device.getAddress());
                     return;
                 }
-
-                // Log.d("info", "success" + device.toString() + "huh\n" + device.getName() + "dev\n" + device.getType() + "class\n" + device.getBluetoothClass() + "alias\n" + device.getBondState() + "addr\n" + rssi+"/\n LOC:"+loc.toString());
 
                 JsonObject sto = new JsonObject();
                 sto.addProperty("lastTimeChecked", System.currentTimeMillis() + "");//consider Calendar.getInstance().getTime();
@@ -144,8 +143,21 @@ public class BluetoothService extends BroadcastReceiver {
         }
     };
 
-    private long timeSinceLastChecked(JsonArray interactions, String id) {
-        long lastTime = 0;
+    private void updateLastTimeChecked(SharedPreferences prefs, JsonArray interactions, String id) {
+        for (int i = 0; i < interactions.size(); i++) {
+            String device_id = interactions.get(i).getAsJsonObject().get("bt_id").getAsString();
+
+            if (device_id.equals(id)) {
+                interactions.get(i).getAsJsonObject().addProperty("lastTimeChecked", System.currentTimeMillis() + "");
+                prefs.edit().putString(Params.BluetoothDataKey, interactions.toString()).apply();
+
+                break;
+            }
+        }
+    }
+
+    private long lastTimeChecked(JsonArray interactions, String id) {
+        long lastTime = -999999;
 
         for (JsonElement interaction : interactions) {
             JsonObject obj = interaction.getAsJsonObject();
@@ -157,6 +169,6 @@ public class BluetoothService extends BroadcastReceiver {
             }
         }
 
-        return System.currentTimeMillis() - lastTime;
+        return lastTime;
     }
 }

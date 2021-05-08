@@ -44,4 +44,9 @@ public class App extends android.app.Application {
         return prefs;
     }
 
+    public static SharedPreferences getPrefs(Context c) {
+        SharedPreferences prefs = c.getSharedPreferences("com.cs528.covidtracker.prefs", Context.MODE_PRIVATE);
+        return prefs;
+    }
+
 }

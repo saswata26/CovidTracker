@@ -9,7 +9,7 @@ import java.util.zip.CheckedOutputStream;
 
 public class AlarmHandler {//calls bluetoothservice repeatedly
     private Context context;
-    public static final long interval = 1000*60;
+    public static final long interval = 2*1000*60;
 
     public AlarmHandler(Context context){
         this.context=context;

@@ -2,6 +2,7 @@ package com.cs528.covidtracker;
 
 import android.app.DatePickerDialog;
 import android.content.Context;
+import android.graphics.PointF;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -36,6 +37,7 @@ import com.mapbox.mapboxsdk.style.layers.HeatmapLayer;
 import com.mapbox.mapboxsdk.style.sources.GeoJsonSource;
 import com.mapbox.mapboxsdk.style.sources.Source;
 
+import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -163,6 +165,18 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
         mapView.getMapAsync(mapboxMap -> mapboxMap.setStyle(Style.DARK, style -> {
             MapActivity.this.mapboxMap = mapboxMap;
             MapActivity.this.loadedStyle = style;
+
+            float lastKnownLat = App.getPrefs().getFloat(Params.LastKnownLatKey, -1);
+            float lastKnownLng = App.getPrefs().getFloat(Params.LastKnownLngKey, -1);
+
+            if (lastKnownLat > 0) {
+                CameraPosition position = new CameraPosition.Builder()
+                        .target(new LatLng(lastKnownLat, lastKnownLng))
+                        .zoom(14)
+                        .build();
+
+                mapboxMap.setCameraPosition(position);
+            }
 
             mapboxMap.getUiSettings().setAttributionEnabled(false);
             mapboxMap.getUiSettings().setLogoEnabled(false);
@@ -339,7 +353,7 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
 
     private void addHeatmapLayer(@NonNull Style loadedMapStyle) {
         HeatmapLayer layer = new HeatmapLayer(HEATMAP_LAYER_ID, EARTHQUAKE_SOURCE_ID);
-        layer.setMaxZoom(15);
+        layer.setMaxZoom(22);
         layer.setSourceLayer(HEATMAP_LAYER_SOURCE);
         layer.setProperties(
             // Color ramp for heatmap.  Domain is 0 (low) to 1 (high).
@@ -381,8 +395,8 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
                         interpolate(
                                 linear(), zoom(),
                                 stop(0, 1),
-                                stop(3, 10),
-                                stop(15, 250)
+                                stop(3, 25),
+                                stop(22, 300)
                         )
                 )
         );
@@ -396,17 +410,19 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
             locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
             locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, this);
 
-            LocationComponent locationComponent = mapboxMap.getLocationComponent();
-            locationComponent.activateLocationComponent(
-                    LocationComponentActivationOptions.builder(this, loadedMapStyle).build());
+            if (mapboxMap != null) {
+                LocationComponent locationComponent = mapboxMap.getLocationComponent();
+                locationComponent.activateLocationComponent(
+                        LocationComponentActivationOptions.builder(this, loadedMapStyle).build());
 
-            try {
-                locationComponent.setLocationComponentEnabled(true);
-            } catch (Exception e) {
-                System.out.println("Current location unavailable");
+                try {
+                    locationComponent.setLocationComponentEnabled(true);
+                } catch (Exception e) {
+                    System.out.println("Current location unavailable");
+                }
+
+                locationComponent.setRenderMode(RenderMode.COMPASS);
             }
-
-            locationComponent.setRenderMode(RenderMode.COMPASS);
         } else {
             permissionsManager = new PermissionsManager(this);
             permissionsManager.requestLocationPermissions(this);
@@ -471,6 +487,9 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
         lastLoc = location;
 
         if (trackingCurrPos) {
+            App.getPrefs().edit().putFloat(Params.LastKnownLatKey, (float)location.getLatitude())
+                    .putFloat(Params.LastKnownLngKey, (float)location.getLongitude()).apply();
+
             CameraPosition position = new CameraPosition.Builder()
                     .target(new LatLng(location.getLatitude(), location.getLongitude()))
                     .zoom(14)
@@ -496,8 +515,6 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
 
         for (CountyData cd : countyData) {
             arr.add(cd.cases);
-//            arr.add(10000);
-//            break;
         }
 
         return "{\"type\": \"Feature\", \"properties\": { \"mag\": " + arr.toString() + "}}";
@@ -538,8 +555,15 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
 
     @Override
     public boolean onMapClick(@NonNull LatLng point) {
-        trackingCurrPos = false;
-        currLoc.setVisibility(View.VISIBLE);
-        return false;
+        for (Interaction interaction : interactionsByDay.get(currDateStr)) {
+            if (new LatLng(interaction.lat, interaction.lng).distanceTo(point) < 30) {
+                String dateStr = new SimpleDateFormat("h:mm aa").format(interaction.date);
+                String scoreText = new DecimalFormat("#.#").format(interaction.getScore(countyData));
+                Toast.makeText(this, "Interaction at " + dateStr + " contributed " + scoreText + " to your score", Toast.LENGTH_SHORT).show();
+                break;
+            }
+        }
+
+        return true;
     }
 }
