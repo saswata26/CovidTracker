@@ -67,6 +67,8 @@ import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.heatmapWeight;
 public class MapActivity extends AppCompatActivity implements PermissionsListener,
         LocationListener, MapboxMap.OnMoveListener, MapboxMap.OnScaleListener, MapboxMap.OnMapClickListener {
 
+    private static MapActivity instance;
+
     private TextView dateText, scoreText, interactionsText;
     private HashMap<String, ArrayList<Interaction>> interactionsByDay;
     private String currDateStr;
@@ -93,6 +95,8 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_map);
+
+        instance = this;
 
         String covidData = App.getPrefs().getString(Params.CovidDataKey, "[]");
         countyData = CovidUtils.parseCovidJson(covidData);
@@ -125,16 +129,7 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
                 cal1.set(Calendar.DAY_OF_MONTH, day1);
 
                 currDateStr = new SimpleDateFormat("MM/dd/yyyy").format(cal1.getTime());
-                setupScoreCard();
-
-                if (loadedStyle != null) {
-                    loadedStyle.removeLayer(INTERACTION_LAYER_ID + (interactionChange - 1));
-                    loadedStyle.removeLayer(INTERACTION_LAYER_SOURCE + (interactionChange - 1));
-
-                    addInteractionSource(loadedStyle, INTERACTION_LAYER_SOURCE + interactionChange);
-                    addInteractionsLayer(loadedStyle, INTERACTION_LAYER_SOURCE + interactionChange, INTERACTION_LAYER_ID + interactionChange);
-                    interactionChange += 1;
-                }
+                refresh(false);
             }, year, month, day);
 
             datePicker.show();
@@ -429,6 +424,26 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
         }
     }
 
+    public static void refreshInteractions() {
+        if (instance == null) return;
+        instance.refresh(true);
+    }
+
+    public void refresh(boolean reloadInteractions) {
+        if (reloadInteractions)
+            loadInteractions();
+        setupScoreCard();
+
+        if (loadedStyle != null) {
+            loadedStyle.removeLayer(INTERACTION_LAYER_ID + (interactionChange - 1));
+            loadedStyle.removeLayer(INTERACTION_LAYER_SOURCE + (interactionChange - 1));
+
+            addInteractionSource(loadedStyle, INTERACTION_LAYER_SOURCE + interactionChange);
+            addInteractionsLayer(loadedStyle, INTERACTION_LAYER_SOURCE + interactionChange, INTERACTION_LAYER_ID + interactionChange);
+            interactionChange += 1;
+        }
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         permissionsManager.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -510,16 +525,6 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
         return highest;
     }
 
-    private String getMagnitudes() {
-        JsonArray arr = new JsonArray();
-
-        for (CountyData cd : countyData) {
-            arr.add(cd.cases);
-        }
-
-        return "{\"type\": \"Feature\", \"properties\": { \"mag\": " + arr.toString() + "}}";
-    }
-
     @Override
     public void onStatusChanged(String s, int i, Bundle bundle) { }
 
@@ -555,6 +560,7 @@ public class MapActivity extends AppCompatActivity implements PermissionsListene
 
     @Override
     public boolean onMapClick(@NonNull LatLng point) {
+        if (interactionsByDay == null || !interactionsByDay.containsKey(currDateStr)) return true;
         for (Interaction interaction : interactionsByDay.get(currDateStr)) {
             if (new LatLng(interaction.lat, interaction.lng).distanceTo(point) < 30) {
                 String dateStr = new SimpleDateFormat("h:mm aa").format(interaction.date);

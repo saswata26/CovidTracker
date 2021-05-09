@@ -139,6 +139,7 @@ public class BluetoothService extends BroadcastReceiver {
                 interactionsArray.add(sto);
 
                 prefs.edit().putString(Params.BluetoothDataKey, interactionsArray.toString()).apply();
+                MapActivity.refreshInteractions();
             }
         }
     };
